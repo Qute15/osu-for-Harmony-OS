@@ -19,6 +19,20 @@
 两条启动路径都做过门禁：**首次编译**（清空着色器缓存）和**二次启动**（走缓存反序列化），
 均为 `bad_runtime_lines: []`。
 
+## 预编译产物
+
+`harmonyos-aot-m2` Release 里放了现成的可运行产物，不想自己编译可以直接下：
+
+| 文件 | 说明 |
+| --- | --- |
+| `osu-harmonyos-x86_64-ime-fix-signed.hap` | x86_64 模拟器整包，`hdc install` 即可（本机 DevEco 调试证书自签） |
+| `libmain.so` | 单独的 NativeAOT 产物，替换 `entry/libs/x86_64/libmain.so` 用 |
+| `SHA256SUMS.txt` | 上面两者的 sha256 |
+
+<https://github.com/Qute15/osu-for-Harmony-OS/releases/tag/harmonyos-aot-m2>
+
+arm64 真机没有预编译包，需要按下面的步骤自己跑一遍 NativeAOT 构建。
+
 ## 目录结构
 
 ```
