@@ -14,6 +14,15 @@ A free-to-win rhythm game. Rhythm is just a *click* away!
 
 This is the future – and final – iteration of the [osu!](https://osu.ppy.sh) game client which marks the beginning of an open era! Currently known by and released under the release codename "*lazer*". As in sharper than cutting-edge.
 
+> [!NOTE]
+> **HarmonyOS / OpenHarmony fork.** This branch additionally carries a **.NET NativeAOT**
+> port that boots the real game on HarmonyOS NEXT: the C# host is compiled straight into
+> `libmain.so`, loaded by SDL3's `openharmony` backend and driven through `SDL_main`, with
+> `osu.Game` / `osu.Framework` left as upstream code.
+> See [`harmonyos/README.md`](harmonyos/README.md) for the architecture, build steps,
+> milestone status (M2: cold boot to the main menu) and troubleshooting notes.
+> Desktop builds from this branch are unaffected.
+
 ## Status
 
 This project is under constant development, but we do our best to keep things in a stable state. Players are encouraged to install from a release alongside their stable *osu!* client. This project will continue to evolve until we eventually reach the point where most users prefer it over the previous "osu!stable" release.
