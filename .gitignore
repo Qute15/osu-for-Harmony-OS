@@ -344,3 +344,21 @@ FodyWeavers.xsd
 
 .idea/.idea.osu.Desktop/.idea/misc.xml
 .idea/.idea.osu.Android/.idea/deploymentTargetDropDown.xml
+
+# HarmonyOS / NativeAOT port
+# local osu.Framework source checkout (see Directory.Build.props)
+/osu.Framework/
+# native binaries & build outputs are not committed
+*.so
+*.hap
+*.p7b
+*.p12
+*.cer
+harmonyos/deveco-app/entry/libs/
+harmonyos/deveco-app/build/
+harmonyos/deveco-app/.hvigor/
+harmonyos/deveco-app/oh_modules/
+harmonyos/deveco-app/entry/build/
+harmonyos/deveco-app/local.properties
+harmonyos/tools/**/bin/
+harmonyos/tools/**/obj/

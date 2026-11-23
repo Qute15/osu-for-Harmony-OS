@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+
+    <!-- 本地快速复现：用 win-x64 的 NativeAOT 跑，和 OHOS 那份 linux-musl-x64 走同一套
+         ILC 裁剪 / 元数据策略，因此反射行为一致，但构建只要几十秒。 -->
+    <PublishAot>true</PublishAot>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <StripSymbols>false</StripSymbols>
+    <IlcTrimMetadata>false</IlcTrimMetadata>
+    <IlcGenerateCompleteTypeMetadata>true</IlcGenerateCompleteTypeMetadata>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ppy.Veldrid" Version="4.9.69-ga405fe8484" />
+    <PackageReference Include="ppy.Veldrid.SPIRV" Version="1.0.15-g5911265ec3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <!-- 可选：由下面这个 descriptor 打开/关闭，用来验证「精确 root 类型」是否能修好反射。 -->
+  <ItemGroup Condition="'$(UseRootDescriptor)' == 'true'">
+    <TrimmerRootDescriptor Include="root.xml" />
+  </ItemGroup>
+</Project>

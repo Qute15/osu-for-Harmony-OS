@@ -1,0 +1,48 @@
+<linker>
+  <!--
+    NativeAOT 裁剪描述符（M1 R2）。
+    DebugUtils.IsNUnitRunning 在原生 .so 里会让 NUnit 构造 AdhocContext，
+    后者用 new MethodWrapper(typeof(AdhocContext), "AdhocTestMethod") 按字符串反射。
+    ILCompiler 看不到这个引用会裁掉 AdhocTestMethod，启动时抛
+    TypeInitializationException。保留这几个类型的全部成员。
+  -->
+  <assembly fullname="nunit.framework">
+    <type fullname="NUnit.Framework.Internal.TestExecutionContext/AdhocContext" preserve="all" />
+    <type fullname="NUnit.Framework.Internal.TestExecutionContext" preserve="all" />
+    <type fullname="NUnit.Framework.Internal.MethodWrapper" preserve="all" />
+  </assembly>
+
+  <!--
+    着色器编译缓存的反射类型（M2 实测踩到）。
+
+    ShaderCompilationStore 用 Newtonsoft.Json 把 VertexFragmentShaderCompilation
+    序列化到 cache/shaders/ 再读回来，其中 Reflection 是 Veldrid.SPIRV.SpirvReflection —— 
+    一个「只有两个只读属性 + 一个带参构造」的不可变类。
+
+    ILC 的依赖分析只看得到直接调用点：SpirvReflection.get_ResourceLayouts 因为被
+    VeldridShader 用到而存活，但 Newtonsoft 是纯反射读取，ILC 看不到，
+    于是 SerializeObject 得到的是 "Reflection": {}。
+    反序列化时带参构造拿不到对应 JSON 属性，两个参数都是 null，
+    最终在 GLShader.CompileInternal 的
+        foreach (... in compilation.Reflection.ResourceLayouts)
+    上抛 NullReferenceException（+0x4ce 正是读数组 length 的那条 movl）。
+
+    这些类型总共十几个字段，逐个 root 比整体 root ppy.Veldrid（含 D3D11/D3D12/
+    Metal/Vulkan 全部后端）便宜得多。IDE 里改字段名会在这里失配，届时缓存
+    自检（ShaderCompilationStore.tryGetCached）会把它降级成「未命中，重新编译」，
+    不会崩，所以这里的描述符过期是安全的。
+  -->
+  <assembly fullname="ppy.Veldrid.SPIRV">
+    <type fullname="Veldrid.SPIRV.SpirvReflection" preserve="all" />
+  </assembly>
+  <assembly fullname="ppy.Veldrid">
+    <type fullname="Veldrid.ResourceLayoutDescription" preserve="all" />
+    <type fullname="Veldrid.ResourceLayoutElementDescription" preserve="all" />
+    <type fullname="Veldrid.VertexElementDescription" preserve="all" />
+    <type fullname="Veldrid.ResourceLayoutElementOptions" preserve="all" />
+    <type fullname="Veldrid.ResourceKind" preserve="all" />
+    <type fullname="Veldrid.ShaderStages" preserve="all" />
+    <type fullname="Veldrid.VertexElementSemantic" preserve="all" />
+    <type fullname="Veldrid.VertexElementFormat" preserve="all" />
+  </assembly>
+</linker>

@@ -38,7 +38,17 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Realm" Version="20.1.0"/>
-    <PackageReference Include="ppy.osu.Framework" Version="2026.1030.0"/>
+    <!--
+      HarmonyOS / NativeAOT (opt-in): build against the local osu.Framework SOURCE
+      project so that osu.Framework.OHOS and osu.Game end up linking against a
+      single osu.Framework assembly. Mixing the NuGet package with a locally built
+      osu.Framework produces duplicate types and breaks NativeAOT rooting.
+
+      Desktop builds are untouched: UseLocalFramework is unset by default, and
+      OsuFrameworkSourceDir defaults to <repo>/osu.Framework (see Directory.Build.props).
+    -->
+    <PackageReference Include="ppy.osu.Framework" Version="2026.1030.0" Condition="'$(UseLocalFramework)' != 'true'"/>
+    <ProjectReference Include="$(OsuFrameworkSourceDir)/osu.Framework/osu.Framework.csproj" Condition="'$(UseLocalFramework)' == 'true'"/>
     <PackageReference Include="ppy.osu.Game.Resources" Version="2026.1105.0"/>
     <PackageReference Include="Sentry" Version="6.11.0"/>
     <PackageReference Include="SharpCompress" Version="0.50.4"/>

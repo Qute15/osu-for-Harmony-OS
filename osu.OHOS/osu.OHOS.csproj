@@ -1,0 +1,156 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Route A entry assembly. Published with .NET NativeAOT into libmain.so.
+
+    SDL3's OpenHarmony startup path (src/main/openharmony/SDL_sysmain_runapp.c:54)
+    does dlopen("libmain.so") and looks for "SDL_main"; NativeEntry.Main is that
+    symbol. SDL3 starts it on a dedicated thread and calls exit() if it returns,
+    so GameHost.Run() must never return.
+
+    UseLocalFramework=true is forwarded to osu.Game so that everything links
+    against ONE osu.Framework assembly (the local source project) instead of
+    the ppy.osu.Framework NuGet package.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>osu_lazer</AssemblyName>
+    <RootNamespace>osu.OHOS</RootNamespace>
+    <Nullable>disable</Nullable>
+    <PublishAot>true</PublishAot>
+    <NativeLibrary>true</NativeLibrary>
+    <StripSymbols>false</StripSymbols>
+    <UseLocalFramework>true</UseLocalFramework>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- Local osu.Framework source checkout (with harmonyos/patches/osu.framework applied).
+         Override with -p:OsuFrameworkSourceDir=<path> if it lives elsewhere. -->
+    <OsuFrameworkSourceDir Condition="'$(OsuFrameworkSourceDir)' == ''">$(MSBuildThisFileDirectory)../osu.Framework</OsuFrameworkSourceDir>
+
+    <!--
+      OHOS 是 musl，系统里没有 linux glibc 发行版那套带版本号的 ICU
+      （libicuuc.so.<NN> / libicui18n.so.<NN>，以及 u_strlen_<NN> 形式符号）。
+      DevEco sysroot 里的 libicu.so 只是无版本后缀的 NDK 链接桩。
+      因此 NativeAOT 的 GlobalizationMode.Settings..cctor 里 LoadICU() 会返回 0，
+      直接 Environment.FailFast("Couldn't find a valid ICU package ...") -> abort()。
+      M1b 首次冷启动实测崩溃栈：
+        SDL_main -> OsuGame..ctor -> CompositeDrawable..ctor -> osuTK.Vector2..cctor
+        -> CultureInfo.CurrentCulture -> CultureData.Invariant
+        -> GlobalizationMode.Settings..cctor -> FailFast -> SystemNative_Abort
+      M1 阶段先开 InvariantGlobalization 让运行时不去加载 ICU；
+      PredefinedCulturesOnly=false 让 lazer 按语言代码创建 CultureInfo 时不抛
+      CultureNotFoundException（只是数据退化为 invariant）。
+      M2 再通过 AppLocalIcu/ICU shim 恢复完整本地化。
+    -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PredefinedCulturesOnly>false</PredefinedCulturesOnly>
+
+    <!--
+      lazer 是重度反射架构：AutoMapper 会按名字遍历 BCL 泛型集合接口的成员
+      （`IList<string>` 找不到 `GetEnumerator` 就抛 ArgumentOutOfRangeException），
+      Realm 的 schema、Newtonsoft 的序列化、DI 的 Activator 也都依赖元数据。
+      NativeAOT 默认只保留「用得到」的反射元数据，逐个补 DynamicDependency /
+      rd.xml 会没完没了（M2 已经连踩两轮：ResolutionContext.CheckContext、
+      IList<string>.GetEnumerator）。
+
+      因此把元数据保留策略放到最宽松一档：
+        IlcTrimMetadata=false            -> 不为裁剪掉的成员丢元数据
+        IlcGenerateCompleteTypeMetadata  -> 为所有类型生成完整成员元数据
+      代价是产物变大（当前 832 MB -> 预计 1 GB 量级），换来的是反射行为
+      与桌面 .NET 一致，符合「体验完全一样」的要求。
+    -->
+    <IlcTrimMetadata>false</IlcTrimMetadata>
+    <IlcGenerateCompleteTypeMetadata>true</IlcGenerateCompleteTypeMetadata>
+  </PropertyGroup>
+
+  <!--
+    R2：lazer/framework 大量使用 DI、反射、序列化（Newtonsoft.Json、Realm、
+    osu.Game 的 ruleset/drawable 动态创建）。M1 阶段先整体 root 这些程序集，
+    避免逐个踩 IL2026/IL3050；M2 再按实际用到的成员收窄描述符。
+  -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="osu_lazer" />
+    <TrimmerRootAssembly Include="osu.Framework.OHOS" />
+    <TrimmerRootAssembly Include="osu.Framework" />
+    <TrimmerRootAssembly Include="osu.Game" />
+    <!--
+      SDL3GraphicsSurface.loadEntryPoints() 用反射读 osuTK 各 GraphicsBindingsBase
+      子类的私有静态字段 (_EntryPointsInstance / _EntryPointNamesInstance /
+      _EntryPointNameOffsetsInstance) 来装载 GL 入口点。
+      NativeAOT 默认把这些从未被代码直接引用的私有字段裁掉，
+      导致 First(...) 抛 "Sequence contains no matching element"（M1b 实测，
+      发生在 GL context 创建成功之后、第一帧渲染之前）。
+      osuTK 体积很小，整体 root 比逐个写 DynamicDependency 更省事也更稳。
+    -->
+    <TrimmerRootAssembly Include="osuTK" />
+    <!--
+      四个 ruleset 程序集整体 root：
+        ① addRuleset() 用 assembly.GetTypes().First(t => IsPublic && IsSubclassOf(Ruleset))
+           找「那一个」入口类型，反射裁剪会直接让 GetTypes 拿不到它们；
+        ② ruleset 里的 Drawable/DrawableRuleset/Mod 全靠 Activator.CreateInstance
+           按类型名创建，需要保留构造函数元数据。
+    -->
+    <TrimmerRootAssembly Include="osu.Game.Rulesets.Osu" />
+    <TrimmerRootAssembly Include="osu.Game.Rulesets.Taiko" />
+    <TrimmerRootAssembly Include="osu.Game.Rulesets.Catch" />
+    <TrimmerRootAssembly Include="osu.Game.Rulesets.Mania" />
+    <!--
+      AutoMapper 的 ExpressionBuilder 静态构造里用
+      `typeof(ResolutionContext).GetMethod(nameof(CheckContext), BindingFlags.Static|Public)`
+      这种纯反射查找拿 MethodInfo，然后喂给 Expression.Call。这些方法在 IL 里
+      没有任何直接调用点，会被整段裁掉，于是 GetMethod 返回 null，
+      Expression.Call(null, ...) 抛 ArgumentNullException("method")，
+      整个 AutoMapper 静态构造炸掉（M2 实测，栈顶在
+      RealmObjectExtensions.Detach -> DatabasedKeyBindingContainer.ReloadMappings）。
+
+      NativeAOT 的反射可见性取决于「该成员是否活过裁剪」，所以整体 root
+      这个程序集（约 500 KB）即可，比逐个写 DynamicDependency 稳。
+    -->
+    <TrimmerRootAssembly Include="AutoMapper" />
+    <!--
+      本地化字符串程序集（NuGet ppy.osu.Game.Resources）必须整体 root。
+
+      `ExtensionMethods.GetLocalisableDescription<T>()` 的取法：
+        枚举值 -> GetField(名字) -> 读 [LocalisableDescription] 特性
+               -> attribute.DeclaringType.GetMember(attribute.Name, Static|Public)
+               -> PropertyInfo.GetValue(null)
+      特性里记的是「某个 *Strings 类的静态属性名」，这些属性在 IL 里
+      没有任何直接调用点，只被反射读取。NativeAOT 会保留元数据
+      （IlcGenerateCompleteTypeMetadata 已开），但**不会为其生成代码**，
+      于是运行期抛：
+        NotSupportedException: This object cannot be invoked because no code
+        was generated for it: 'osu.Game.Resources.Localisation.Web.RankingsStrings.TypeCountry'
+      这会在 OsuGame.LoadComplete() 里创建 RankingsOverlay 时炸掉，
+      连带 Settings 等覆盖层全部没建出来（M2 实测）。
+    -->
+    <TrimmerRootAssembly Include="osu.Game.Resources" />
+    <TrimmerRootDescriptor Include="rd.xml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../osu.Framework.OHOS/osu.Framework.OHOS.csproj" />
+    <ProjectReference Include="$(OsuFrameworkSourceDir)/osu.Framework/osu.Framework.csproj" />
+    <ProjectReference Include="../osu.Game/osu.Game.csproj"
+                      AdditionalProperties="UseLocalFramework=true" />
+    <!--
+      四个官方 ruleset 必须**静态引用**进 NativeAOT 产物。
+      桌面版的做法是运行期扫描启动目录里的 osu.Game.Rulesets.*.dll
+      （RulesetStore.loadFromDisk），而 AOT 单模块产物里没有这些 DLL，
+      于是 AppDomain 里一个 ruleset 程序集都没有，导致
+      OsuGame.load() 的 `RulesetStore.AvailableRulesets.First()` 抛
+      "Sequence contains no elements"（M2 首轮实测）。
+
+      RulesetStore.loadFromAppDomain() 按程序集名前缀 "osu.Game.Rulesets" 匹配，
+      所以只要这些程序集被链接进来并整体 root，就能被自动识别。
+    -->
+    <ProjectReference Include="../osu.Game.Rulesets.Osu/osu.Game.Rulesets.Osu.csproj"
+                      AdditionalProperties="UseLocalFramework=true" />
+    <ProjectReference Include="../osu.Game.Rulesets.Taiko/osu.Game.Rulesets.Taiko.csproj"
+                      AdditionalProperties="UseLocalFramework=true" />
+    <ProjectReference Include="../osu.Game.Rulesets.Catch/osu.Game.Rulesets.Catch.csproj"
+                      AdditionalProperties="UseLocalFramework=true" />
+    <ProjectReference Include="../osu.Game.Rulesets.Mania/osu.Game.Rulesets.Mania.csproj"
+                      AdditionalProperties="UseLocalFramework=true" />
+  </ItemGroup>
+</Project>

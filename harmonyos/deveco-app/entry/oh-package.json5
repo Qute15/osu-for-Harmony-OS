@@ -1,0 +1,13 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "osu! for HarmonyOS",
+  "main": "",
+  "author": "",
+  "license": "",
+  "dependencies": {
+    "libosu.so": "file:./src/main/cpp/types/libosu",
+    "libaotsample.so": "file:./src/main/cpp/types/libaotsample",
+    "libSDL3.so": "file:./src/main/cpp/types/libSDL3"
+  }
+}

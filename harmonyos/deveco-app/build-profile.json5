@@ -1,0 +1,38 @@
+{
+  "app": {
+    // 签名材料不进仓库。请用 DevEco Studio 的 File > Project Structure > Signing Configs
+    // 生成，或手动填写本机的 .p12 / .cer / .p7b 路径。未配置时 hvigor 产出 unsigned HAP，
+    // 可用 harmonyos/docs/OHOS-PLATFORM-CHECKLIST.md 第 11.6 节的手工签名流程签署。
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "targetSdkVersion": "26.0.0",
+        "compatibleSdkVersion": "26.0.0",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      { "name": "debug" },
+      { "name": "release" }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [ "default" ]
+        }
+      ]
+    }
+  ]
+}

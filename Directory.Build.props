@@ -13,6 +13,14 @@
   <PropertyGroup>
     <ApplicationManifest>$(MSBuildThisFileDirectory)app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <PropertyGroup Label="HarmonyOS">
+    <!--
+      Root of a local osu.Framework source checkout. Only consulted when a project
+      sets UseLocalFramework=true (i.e. the HarmonyOS / NativeAOT build). Override
+      with -p:OsuFrameworkSourceDir=<path> to point at a checkout kept elsewhere.
+    -->
+    <OsuFrameworkSourceDir Condition="'$(OsuFrameworkSourceDir)' == ''">$(MSBuildThisFileDirectory)osu.Framework</OsuFrameworkSourceDir>
+  </PropertyGroup>
   <ItemGroup Label="License">
     <None Include="$(MSBuildThisFileDirectory)osu.licenseheader">
       <Link>osu.licenseheader</Link>

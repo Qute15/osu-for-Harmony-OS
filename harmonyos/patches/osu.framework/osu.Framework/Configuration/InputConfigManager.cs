@@ -1,0 +1,118 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using Newtonsoft.Json;
+using osu.Framework.Bindables;
+using osu.Framework.Extensions.TypeExtensions;
+using osu.Framework.Input.Handlers;
+using osu.Framework.Logging;
+using osu.Framework.Platform;
+
+namespace osu.Framework.Configuration
+{
+    /// <summary>
+    /// Handles serialisation/deserialisation of a provided collection of <see cref="InputHandler"/>s.
+    /// </summary>
+    [Serializable]
+    internal class InputConfigManager : ConfigManager
+    {
+        public const string FILENAME = "input.json";
+
+        private readonly Storage storage;
+
+        [JsonConverter(typeof(TypedRepopulatingConverter<InputHandler>))]
+        public IReadOnlyList<InputHandler> InputHandlers { get; set; }
+
+        /// <summary>
+        /// Create a new instance.
+        /// </summary>
+        /// <param name="storage">The storage to store the configuration file to.</param>
+        /// <param name="inputHandlers">The collection of available input handlers. Settings will be loaded into existing instances.</param>
+        public InputConfigManager(Storage storage, IReadOnlyList<InputHandler> inputHandlers)
+        {
+            this.storage = storage;
+            InputHandlers = inputHandlers;
+
+            Load();
+
+            bindToHandlersBindables();
+        }
+
+        protected override bool PerformSave()
+        {
+            try
+            {
+                using (var stream = storage.CreateFileSafely(FILENAME))
+                using (var sw = new StreamWriter(stream))
+                {
+                    sw.Write(JsonConvert.SerializeObject(this));
+                    return true;
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "Error occurred when saving input configuration");
+            }
+
+            return false;
+        }
+
+        protected override void PerformLoad()
+        {
+            if (storage.Exists(FILENAME))
+            {
+                try
+                {
+                    using (Stream stream = storage.GetStream(FILENAME, FileAccess.Read, FileMode.Open))
+                    using (var sr = new StreamReader(stream))
+                    {
+                        JsonConvert.PopulateObject(sr.ReadToEnd(), this, new JsonSerializerSettings
+                        {
+                            ObjectCreationHandling = ObjectCreationHandling.Reuse,
+                            DefaultValueHandling = DefaultValueHandling.IgnoreAndPopulate
+                        });
+                    }
+                }
+                catch (Exception e)
+                {
+                    Logger.Error(e, "Error occurred when parsing input configuration");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Binds to all <see cref="Bindable{T}"/>s that the <see cref="InputHandlers"/> expose,
+        /// and calls <see cref="ConfigManager.QueueBackgroundSave"/> when their values change.
+        /// </summary>
+        /// <remarks>
+        /// 原实现在这里对每个属性做
+        /// <c>typeof(InputConfigManager).GetMethod("subscribe").MakeGenericMethod(encapsulatedType).Invoke(...)</c>，
+        /// 而 NativeAOT 只编译编译期已知的泛型实例化，
+        /// <c>MakeGenericMethod()</c> 在 HarmonyOS 上会抛
+        /// <c>NotSupportedException: ... is missing native code</c>，
+        /// 导致 GameHost.SetupConfig() 阶段整条启动链失败（M1b 实测）。
+        ///
+        /// 改为通过 <see cref="IValueChangeNotifier"/> 订阅：该接口不带泛型参数，
+        /// 任意 <see cref="Bindable{T}"/> 都实现了它，因此既保留原语义，
+        /// 又完全不需要反射构造泛型方法。
+        /// </remarks>
+        private void bindToHandlersBindables()
+        {
+            foreach (var handler in InputHandlers)
+            {
+                foreach (var property in handler.GetType().GetProperties())
+                {
+                    // 非 Bindable 属性会是 null（GetValue 返回的不是 IValueChangeNotifier）。
+                    if (property.GetValue(handler) is IValueChangeNotifier notifier)
+                        notifier.ValueChangedNonGeneric += QueueBackgroundSave;
+                }
+            }
+        }
+    }
+}
