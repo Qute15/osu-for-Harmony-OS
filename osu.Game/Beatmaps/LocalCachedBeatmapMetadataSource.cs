@@ -175,6 +175,17 @@ namespace osu.Game.Beatmaps
             if (DebugUtils.IsNUnitRunning)
                 return Task.CompletedTask;
 
+            // HarmonyOS/AOT port opt-out. Fetching this cache means downloading a 32 MB
+            // bz2 and expanding it into a ~91 MB sqlite file, which aborts the process on
+            // that platform (native SIGABRT on a thread-pool worker; see
+            // docs/OHOS-PLATFORM-CHECKLIST.md §11.10). The cache only backs user tags and
+            // online star-rating fallbacks, so osu falls back to local calculation instead.
+            if (AppContext.TryGetSwitch(@"Osu.HarmonyOS.SkipOnlineBeatmapMetadataCache", out bool skipCache) && skipCache)
+            {
+                log(@"Online metadata cache fetch skipped (platform opt-out).");
+                return Task.CompletedTask;
+            }
+
             bool isRefetch = storage.Exists(cache_database_name);
 
             string cacheFilePath = storage.GetFullPath(cache_database_name);
