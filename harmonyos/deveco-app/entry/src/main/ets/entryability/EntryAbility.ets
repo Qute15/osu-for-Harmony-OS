@@ -126,37 +126,26 @@ export default class EntryAbility extends UIAbility {
       hilog.warn(DOMAIN, 'OSU-AOT', 'read /data/local/tmp/osu-import failed: %{public}s', `${(err as Error).message}`);
     }
 
-    // 兜底：目录里还没有 .osz 时用 HAP 内置的样本，方便首次启动就能看到导入效果。
+    // 兜底：把 rawfile 里所有 .osz 都投递进来。换谱面只需替换
+    // entry/src/main/resources/rawfile/*.osz 后重打 HAP，不用重编 NativeAOT。
     try {
-      if (this.hasArchive(importDir)) {
-        return;
-      }
-      const raw: Uint8Array = this.context.resourceManager.getRawFileContentSync('sample_beats.osz');
-      const buffer: ArrayBuffer = new ArrayBuffer(raw.byteLength);
-      new Uint8Array(buffer).set(raw);
-      const file = fs.openSync(`${importDir}/sample_beats.osz`,
-        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-      fs.writeSync(file.fd, buffer);
-      fs.closeSync(file);
-      hilog.info(DOMAIN, 'OSU-AOT', 'staged bundled sample_beats.osz (%{public}d bytes)', raw.byteLength);
-    } catch (err) {
-      hilog.error(DOMAIN, 'OSU-AOT', 'stage bundled beatmap failed: %{public}s', `${(err as Error).message}`);
-    }
-  }
-
-  private hasArchive(dir: string): boolean {
-    try {
-      const entries: string[] = fs.listFileSync(dir);
-      for (const name of entries) {
-        // importer 成功后会删掉 .osz 并留下 .osz.done，二者都算「已处理过」。
-        if (name.endsWith('.osz') || name.endsWith('.osz.done')) {
-          return true;
+      const rawNames: string[] = this.context.resourceManager.getRawFileListSync('');
+      for (const name of rawNames) {
+        if (!name.endsWith('.osz') || fs.accessSync(`${importDir}/${name}.done`)) {
+          continue;
         }
+        const raw: Uint8Array = this.context.resourceManager.getRawFileContentSync(name);
+        const buffer: ArrayBuffer = new ArrayBuffer(raw.byteLength);
+        new Uint8Array(buffer).set(raw);
+        const file = fs.openSync(`${importDir}/${name}`,
+          fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+        fs.writeSync(file.fd, buffer);
+        fs.closeSync(file);
+        hilog.info(DOMAIN, 'OSU-AOT', 'staged rawfile %{public}s (%{public}d bytes)', name, raw.byteLength);
       }
     } catch (err) {
-      hilog.warn(DOMAIN, 'OSU-AOT', 'list import dir failed: %{public}s', `${(err as Error).message}`);
+      hilog.error(DOMAIN, 'OSU-AOT', 'stage rawfile beatmaps failed: %{public}s', `${(err as Error).message}`);
     }
-    return false;
   }
 
   /**
