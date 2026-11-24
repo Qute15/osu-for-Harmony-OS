@@ -39,6 +39,12 @@ export default class EntryAbility extends UIAbility {
     // 每次启动都重写，未显式指定时回到 lazer，避免上次 selftest 残留。
     this.writeMode(want);
 
+    // ---------------- 谱面导入暂存 ----------------
+    // ArkTS 有沙箱写权限、native/AOT 侧没有「文件选择器」。这里把外部放好的
+    // .osz 复制进游戏自己的 osu/import 目录；C# 侧 OsuGameOHOS 在 LoadComplete
+    // 后扫描该目录调 BeatmapManager.Import()。
+    this.stageBeatmapArchives();
+
     // ---------------- M0 回归 ----------------
     try {
       const r: number = aotsample.hello();
@@ -64,6 +70,85 @@ export default class EntryAbility extends UIAbility {
       hilog.error(DOMAIN, 'OSU-AOT', 'SDL3 provideArkTSObjects failed: %{public}s',
         `${(err as Error).message}`);
     }
+  }
+
+  /**
+   * 准备待导入的 .osz：
+   *   1. /data/local/tmp/osu-import/*.osz（hdc file send 的落点，任意谱面）
+   *   2. rawfile/sample_beats.osz（HAP 内置的 Night of Knights 样本，兜底）
+   * 只复制、不导入；真正的 BeatmapManager.Import 在 AOT 侧执行。
+   */
+  private stageBeatmapArchives(): void {
+    const importDir = `${this.context.filesDir}/osu/import`;
+
+    try {
+      fs.mkdirSync(importDir, true);
+    } catch (err) {
+      hilog.error(DOMAIN, 'OSU-AOT', 'create import dir failed: %{public}s', `${(err as Error).message}`);
+      return;
+    }
+
+    // 让 native 侧不必猜 filesDir 的真实路径。
+    try {
+      const manifest = fs.openSync(`${importDir}/import-dir.txt`,
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      fs.writeSync(manifest.fd, importDir);
+      fs.closeSync(manifest);
+    } catch (err) {
+      hilog.warn(DOMAIN, 'OSU-AOT', 'write import-dir.txt failed: %{public}s', `${(err as Error).message}`);
+    }
+
+    // 外部投递目录。hdc shell 不能直接写应用沙箱，只能先放这里。
+    const staging = '/data/local/tmp/osu-import';
+    try {
+      if (fs.accessSync(staging)) {
+        const entries: string[] = fs.listFileSync(staging);
+        for (const name of entries) {
+          if (!name.endsWith('.osz')) {
+            continue;
+          }
+          try {
+            fs.copyFileSync(`${staging}/${name}`, `${importDir}/${name}`);
+            hilog.info(DOMAIN, 'OSU-AOT', 'staged beatmap from /data/local/tmp: %{public}s', name);
+          } catch (err) {
+            hilog.error(DOMAIN, 'OSU-AOT', 'copy staged beatmap failed: %{public}s', `${(err as Error).message}`);
+          }
+        }
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, 'OSU-AOT', 'read /data/local/tmp/osu-import failed: %{public}s', `${(err as Error).message}`);
+    }
+
+    // 兜底：目录里还没有 .osz 时用 HAP 内置的样本，方便首次启动就能看到导入效果。
+    try {
+      if (this.hasArchive(importDir)) {
+        return;
+      }
+      const raw: Uint8Array = this.context.resourceManager.getRawFileContentSync('sample_beats.osz');
+      const buffer: ArrayBuffer = new ArrayBuffer(raw.byteLength);
+      new Uint8Array(buffer).set(raw);
+      const file = fs.openSync(`${importDir}/sample_beats.osz`,
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      fs.writeSync(file.fd, buffer);
+      fs.closeSync(file);
+      hilog.info(DOMAIN, 'OSU-AOT', 'staged bundled sample_beats.osz (%{public}d bytes)', raw.byteLength);
+    } catch (err) {
+      hilog.error(DOMAIN, 'OSU-AOT', 'stage bundled beatmap failed: %{public}s', `${(err as Error).message}`);
+    }
+  }
+
+  private hasArchive(dir: string): boolean {
+    try {
+      const entries: string[] = fs.listFileSync(dir);
+      for (const name of entries) {
+        if (name.endsWith('.osz')) {
+          return true;
+        }
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, 'OSU-AOT', 'list import dir failed: %{public}s', `${(err as Error).message}`);
+    }
+    return false;
   }
 
   /**
