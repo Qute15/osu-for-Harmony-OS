@@ -82,7 +82,11 @@ export default class EntryAbility extends UIAbility {
     const importDir = `${this.context.filesDir}/osu/import`;
 
     try {
-      fs.mkdirSync(importDir, true);
+      // 实测 HarmonyOS 的 mkdirSync(dir, true) 在目录已存在时会抛 "File exists"，
+      // 不能无条件调用，否则第二次启动整个导入流程都会被跳过。
+      if (!fs.accessSync(importDir)) {
+        fs.mkdirSync(importDir, true);
+      }
     } catch (err) {
       hilog.error(DOMAIN, 'OSU-AOT', 'create import dir failed: %{public}s', `${(err as Error).message}`);
       return;
@@ -108,6 +112,9 @@ export default class EntryAbility extends UIAbility {
             continue;
           }
           try {
+            if (fs.accessSync(`${importDir}/${name}.done`)) {
+              continue;
+            }
             fs.copyFileSync(`${staging}/${name}`, `${importDir}/${name}`);
             hilog.info(DOMAIN, 'OSU-AOT', 'staged beatmap from /data/local/tmp: %{public}s', name);
           } catch (err) {
@@ -141,7 +148,8 @@ export default class EntryAbility extends UIAbility {
     try {
       const entries: string[] = fs.listFileSync(dir);
       for (const name of entries) {
-        if (name.endsWith('.osz')) {
+        // importer 成功后会删掉 .osz 并留下 .osz.done，二者都算「已处理过」。
+        if (name.endsWith('.osz') || name.endsWith('.osz.done')) {
           return true;
         }
       }
