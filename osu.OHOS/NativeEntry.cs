@@ -27,6 +27,18 @@ namespace osu.OHOS
             AppDomain.CurrentDomain.UnhandledException += (_, e) =>
                 OHOSLog.Error("UnhandledException: " + e.ExceptionObject);
 
+            // OHOS/AOT：online.db 元数据缓存（32MB bz2 → 91MB sqlite）在 TP worker 上
+            // 会 native abort（SIGABRT，docs/OHOS-PLATFORM-CHECKLIST.md §11.10）。
+            // 该缓存只服务于「用户标签」和在线星级兜底，关掉后 osu 退回本地计算星级。
+            // 用 AppContext 开关而不是编译期常量：osu.Game 保持上游可编译，
+            // 由平台宿主显式声明这项平台差异。
+            AppContext.SetSwitch("Osu.HarmonyOS.SkipOnlineBeatmapMetadataCache", true);
+
+            // 同样的理由：HAP 里没有 libssl.so.3 / libcrypto.so.3，任何 SslStream
+            // 首次初始化都会 abort()（见 docs/OHOS-PLATFORM-CHECKLIST.md §11.11）。
+            // 让 HTTPS 请求快速失败，保住本地谱面导入 / 游玩主流程。
+            AppContext.SetSwitch("Osu.HarmonyOS.DisableTlsRequests", true);
+
             // 不要用 using：GameHost.Dispose() 在异常路径上也会抛
             // （LoadingComponentsLogger -> DebugUtils -> RuntimeInfo..cctor），
             // 会把 host.Run() 的原始异常整个盖掉，之前就吃过这个亏。
